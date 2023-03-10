@@ -23,11 +23,13 @@ from typing import List
 from ready_trader_go import BaseAutoTrader, Instrument, Lifespan, MAXIMUM_ASK, MINIMUM_BID, Side
 
 
-LOT_SIZE = 10
+MAX_LOT_SIZE = 100
 POSITION_LIMIT = 100
 TICK_SIZE_IN_CENTS = 100
-MIN_BID_NEAREST_TICK = (MINIMUM_BID + TICK_SIZE_IN_CENTS) // TICK_SIZE_IN_CENTS * TICK_SIZE_IN_CENTS
+MIN_BID_NEAREST_TICK = (
+    MINIMUM_BID + TICK_SIZE_IN_CENTS) // TICK_SIZE_IN_CENTS * TICK_SIZE_IN_CENTS
 MAX_ASK_NEAREST_TICK = MAXIMUM_ASK // TICK_SIZE_IN_CENTS * TICK_SIZE_IN_CENTS
+THRESHOLD = 2e-3
 
 
 class AutoTrader(BaseAutoTrader):
@@ -47,6 +49,8 @@ class AutoTrader(BaseAutoTrader):
         self.bids = set()
         self.asks = set()
         self.ask_id = self.ask_price = self.bid_id = self.bid_price = self.position = 0
+        self.top_bid_dic = dict()
+        self.top_ask_dic = dict()
 
     def on_error_message(self, client_order_id: int, error_message: bytes) -> None:
         """Called when the exchange detects an error.
@@ -54,7 +58,8 @@ class AutoTrader(BaseAutoTrader):
         If the error pertains to a particular order, then the client_order_id
         will identify that order, otherwise the client_order_id will be zero.
         """
-        self.logger.warning("error with order %d: %s", client_order_id, error_message.decode())
+        self.logger.warning("error with order %d: %s",
+                            client_order_id, error_message.decode())
         if client_order_id != 0 and (client_order_id in self.bids or client_order_id in self.asks):
             self.on_order_status_message(client_order_id, 0, 0, 0)
 
@@ -79,29 +84,72 @@ class AutoTrader(BaseAutoTrader):
         """
         self.logger.info("received order book for instrument %d with sequence number %d", instrument,
                          sequence_number)
-        if instrument == Instrument.FUTURE:
-            price_adjustment = - (self.position // LOT_SIZE) * TICK_SIZE_IN_CENTS
-            new_bid_price = bid_prices[0] + price_adjustment if bid_prices[0] != 0 else 0
-            new_ask_price = ask_prices[0] + price_adjustment if ask_prices[0] != 0 else 0
+        if instrument == Instrument.ETF:
+            other = Instrument.FUTURE
+            self.top_bid_dic[instrument] = [
+                (price, bid_volumes[idx]) for idx, price in enumerate(bid_prices)]
+            self.top_ask_dic[instrument] = [
+                (price, ask_volumes[idx]) for idx, price in enumerate(ask_prices)]
 
-            if self.bid_id != 0 and new_bid_price not in (self.bid_price, 0):
-                self.send_cancel_order(self.bid_id)
-                self.bid_id = 0
-            if self.ask_id != 0 and new_ask_price not in (self.ask_price, 0):
-                self.send_cancel_order(self.ask_id)
-                self.ask_id = 0
+            f_ask_p0 = self.top_ask_dic[other][0][0]
+            f_bid_p0 = self.top_bid_dic[other][0][0]
+            e_ask_p0 = self.top_ask_dic[instrument][0][0]
+            e_bid_p0 = self.top_bid_dic[instrument][0][0]
 
-            if self.bid_id == 0 and new_bid_price != 0 and self.position < POSITION_LIMIT:
-                self.bid_id = next(self.order_ids)
-                self.bid_price = new_bid_price
-                self.send_insert_order(self.bid_id, Side.BUY, new_bid_price, LOT_SIZE, Lifespan.GOOD_FOR_DAY)
-                self.bids.add(self.bid_id)
+            # entry signal
+            if self.position == 0 and other in self.top_bid_dic.keys() and other in self.top_ask_dic.keys():
+                if f_bid_p0 - e_ask_p0 >= THRESHOLD * e_ask_p0:
+                    # hit bid in future, take offer in etf
+                    self.bid_id = next(self.order_ids)
+                    self.ask_id = next(self.order_ids)
+                    volume = self.top_ask_dic[instrument][0][1]
+                    volume = min(volume, POSITION_LIMIT -
+                                 abs(self.position), MAX_LOT_SIZE)
+                    self.send_insert_order(
+                        self.bid_id, Side.BUY, e_ask_p0, volume, Lifespan.FILL_AND_KILL)
+                    self.bids.add(self.bid_id)
+                    # self.send_insert_order(
+                    #     self.ask_id, Side.SELL, f_bid_p0, volume, Lifespan.GOOD_FOR_DAY)
+                elif e_bid_p0 - f_ask_p0 >= THRESHOLD * f_ask_p0:
+                    # hit bid in etf, take offer in future
+                    self.ask_id = next(self.order_ids)
+                    self.bid_id = next(self.order_ids)
+                    volume = self.top_bid_dic[instrument][0][1]
+                    volume = min(volume, POSITION_LIMIT -
+                                 abs(self.position), MAX_LOT_SIZE)
+                    self.send_insert_order(
+                        self.ask_id, Side.SELL, e_bid_p0, volume, Lifespan.FILL_AND_KILL)
+                    self.asks.add(self.ask_id)
+                    # self.send_insert_order(
+                    #     self.bid_id, Side.BUY, f_ask_p0, volume, Lifespan.GOOD_FOR_DAY)
 
-            if self.ask_id == 0 and new_ask_price != 0 and self.position > -POSITION_LIMIT:
-                self.ask_id = next(self.order_ids)
-                self.ask_price = new_ask_price
-                self.send_insert_order(self.ask_id, Side.SELL, new_ask_price, LOT_SIZE, Lifespan.GOOD_FOR_DAY)
-                self.asks.add(self.ask_id)
+            # exit signal
+            elif self.position != 0:
+                # when we have long etf and we need to sell it
+                if self.position > 0 and e_bid_p0 > f_ask_p0:
+                    self.bid_id = next(self.order_ids)
+                    self.ask_id = next(self.order_ids)
+
+                    volumn = abs(self.position)
+                    self.send_insert_order(
+                        self.ask_id, Side.SELL, e_bid_p0, volumn, Lifespan.F)
+                    self.bids.add(self.bid_id)
+
+                # when we have short etf and we need to buy it
+                elif self.position < 0 and f_bid_p0 > e_ask_p0:
+                    self.bid_id = next(self.order_ids)
+                    self.ask_id = next(self.order_ids)
+
+                    volumn = abs(self.position)
+                    self.send_insert_order(
+                        self.bid_id, Side.BUY, e_ask_p0, volumn, Lifespan.F)
+                    self.asks.add(self.ask_id)
+
+        elif instrument == Instrument.FUTURE:
+            self.top_bid_dic[instrument] = [
+                (price, bid_volumes[idx]) for idx, price in enumerate(bid_prices)]
+            self.top_ask_dic[instrument] = [
+                (price, ask_volumes[idx]) for idx, price in enumerate(ask_prices)]
 
     def on_order_filled_message(self, client_order_id: int, price: int, volume: int) -> None:
         """Called when one of your orders is filled, partially or fully.
@@ -114,10 +162,12 @@ class AutoTrader(BaseAutoTrader):
                          price, volume)
         if client_order_id in self.bids:
             self.position += volume
-            self.send_hedge_order(next(self.order_ids), Side.ASK, MIN_BID_NEAREST_TICK, volume)
+            self.send_hedge_order(next(self.order_ids),
+                                  Side.ASK, MIN_BID_NEAREST_TICK, volume)
         elif client_order_id in self.asks:
             self.position -= volume
-            self.send_hedge_order(next(self.order_ids), Side.BID, MAX_ASK_NEAREST_TICK, volume)
+            self.send_hedge_order(next(self.order_ids),
+                                  Side.BID, MAX_ASK_NEAREST_TICK, volume)
 
     def on_order_status_message(self, client_order_id: int, fill_volume: int, remaining_volume: int,
                                 fees: int) -> None:

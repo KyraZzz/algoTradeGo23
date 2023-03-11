@@ -48,7 +48,7 @@ class AutoTrader(BaseAutoTrader):
         self.order_ids = itertools.count(1)
         self.bids = set()
         self.asks = set()
-        self.ask_id = self.ask_price = self.bid_id = self.bid_price = self.position = self.active_volume = 0
+        self.ask_id = self.ask_price = self.bid_id = self.bid_price = self.position = 0
         self.top_bid_dic = dict()
         self.top_ask_dic = dict()
 
@@ -113,23 +113,23 @@ class AutoTrader(BaseAutoTrader):
 
             # entry signal
             if abs(self.position) < POSITION_LIMIT and other in self.top_bid_dic.keys() and other in self.top_ask_dic.keys():
-                if f_bid_p0 - (e_bid_p0 + TICK_SIZE_IN_CENTS) >= THRESHOLD * (e_bid_p0 + TICK_SIZE_IN_CENTS):
-                    # insert bid in etf, (if successful) hit bid in future 
+                if f_bid_p0 - e_ask_p0 >= THRESHOLD * e_ask_p0:
+                    # hit bid in future, take offer in etf
                     self.bid_id = next(self.order_ids)
                     bid_allowance = POSITION_LIMIT - self.position
                     volume = min(
                         self.top_ask_dic[instrument][0][1], bid_allowance)
                     self.send_insert_order(
-                        self.bid_id, Side.BUY, (e_bid_p0 + TICK_SIZE_IN_CENTS), volume, Lifespan.G)
+                        self.bid_id, Side.BUY, e_ask_p0, volume, Lifespan.FILL_AND_KILL)
                     self.bids.add(self.bid_id)
-                elif (e_ask_p0 - TICK_SIZE_IN_CENTS) - f_ask_p0 >= THRESHOLD * f_ask_p0:
-                    # insert ask in etf, (if successful) take offer in future
+                elif e_bid_p0 - f_ask_p0 >= THRESHOLD * f_ask_p0:
+                    # hit bid in etf, take offer in future
                     self.ask_id = next(self.order_ids)
                     ask_allowance = POSITION_LIMIT + self.position
                     volume = min(
                         self.top_bid_dic[instrument][0][1], ask_allowance)
                     self.send_insert_order(
-                        self.ask_id, Side.SELL, (e_ask_p0 - TICK_SIZE_IN_CENTS), volume, Lifespan.G)
+                        self.ask_id, Side.SELL, e_bid_p0, volume, Lifespan.FILL_AND_KILL)
                     self.asks.add(self.ask_id)
 
             # exit signal

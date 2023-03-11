@@ -1,2 +1,8 @@
 optiver-env/
 **/__pycache__
+autotrader.log
+exchange.log
+info.dat
+match_events.csv
+score_board.csv
+stat_arb_naive.log

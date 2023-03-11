@@ -180,10 +180,10 @@ class AutoTrader(BaseAutoTrader):
         self.logger.info("received order status for order %d with fill volume %d remaining %d and fees %d",
                          client_order_id, fill_volume, remaining_volume, fees)
         if remaining_volume == 0:
-            if client_order_id == self.bid_id:
-                self.bid_id = 0
-            elif client_order_id == self.ask_id:
-                self.ask_id = 0
+            # if client_order_id == self.bid_id:
+            #     self.bid_id = 0
+            # elif client_order_id == self.ask_id:
+            #     self.ask_id = 0
 
             # It could be either a bid or an ask
             self.bids.discard(client_order_id)

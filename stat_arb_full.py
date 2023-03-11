@@ -113,7 +113,7 @@ class AutoTrader(BaseAutoTrader):
 
             # entry signal
             if abs(self.position) < POSITION_LIMIT and other in self.top_bid_dic.keys() and other in self.top_ask_dic.keys():
-                if f_bid_p0 - e_ask_p0 >= THRESHOLD * e_ask_p0:
+                if f_bid_p0 - e_ask_p0 >= THRESHOLD * e_ask_p0 and e_ask_p0 != 0:
                     # hit bid in future, take offer in etf
                     self.bid_id = next(self.order_ids)
                     bid_allowance = POSITION_LIMIT - self.position
@@ -122,7 +122,7 @@ class AutoTrader(BaseAutoTrader):
                     self.send_insert_order(
                         self.bid_id, Side.BUY, e_ask_p0, volume, Lifespan.FILL_AND_KILL)
                     self.bids.add(self.bid_id)
-                elif e_bid_p0 - f_ask_p0 >= THRESHOLD * f_ask_p0:
+                elif e_bid_p0 - f_ask_p0 >= THRESHOLD * f_ask_p0 and f_ask_p0 != 0:
                     # hit bid in etf, take offer in future
                     self.ask_id = next(self.order_ids)
                     ask_allowance = POSITION_LIMIT + self.position
@@ -185,10 +185,10 @@ class AutoTrader(BaseAutoTrader):
         self.logger.info("received order status for order %d with fill volume %d remaining %d and fees %d",
                          client_order_id, fill_volume, remaining_volume, fees)
         if remaining_volume == 0:
-            if client_order_id == self.bid_id:
-                self.bid_id = 0
-            elif client_order_id == self.ask_id:
-                self.ask_id = 0
+            # if client_order_id == self.bid_id:
+            #     self.bid_id = 0
+            # elif client_order_id == self.ask_id:
+            #     self.ask_id = 0
 
             # It could be either a bid or an ask
             self.bids.discard(client_order_id)

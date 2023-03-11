@@ -26,6 +26,9 @@ from ready_trader_go import BaseAutoTrader, Instrument, Lifespan, MAXIMUM_ASK, M
 MAX_LOT_SIZE = 100
 POSITION_LIMIT = 100
 TICK_SIZE_IN_CENTS = 100
+ACTIVE_VOLUME_LIMIT = 200
+ACTIVE_ORDERS_LIMIT = 10
+
 MIN_BID_NEAREST_TICK = (
     MINIMUM_BID + TICK_SIZE_IN_CENTS) // TICK_SIZE_IN_CENTS * TICK_SIZE_IN_CENTS
 MAX_ASK_NEAREST_TICK = MAXIMUM_ASK // TICK_SIZE_IN_CENTS * TICK_SIZE_IN_CENTS
@@ -48,9 +51,10 @@ class AutoTrader(BaseAutoTrader):
         self.order_ids = itertools.count(1)
         self.bids = set()
         self.asks = set()
-        self.ask_id = self.ask_price = self.bid_id = self.bid_price = self.position = self.active_volume = 0
+        self.ask_id = self.ask_price = self.bid_id = self.bid_price = self.position = self.active_volume = self.active_orders = 0
         self.top_bid_dic = dict()
         self.top_ask_dic = dict()
+        self.active_order_dict = dict()
 
     def on_error_message(self, client_order_id: int, error_message: bytes) -> None:
         """Called when the exchange detects an error.
@@ -112,25 +116,38 @@ class AutoTrader(BaseAutoTrader):
             e_bid_p0 = self.top_bid_dic[instrument][0][0]
 
             # entry signal
-            if abs(self.position) < POSITION_LIMIT and other in self.top_bid_dic.keys() and other in self.top_ask_dic.keys():
+            if abs(self.position) < POSITION_LIMIT and self.active_volume < ACTIVE_VOLUME_LIMIT and self.active_orders < ACTIVE_ORDERS_LIMIT\
+            and other in self.top_bid_dic.keys() and other in self.top_ask_dic.keys():
                 if f_bid_p0 - (e_bid_p0 + TICK_SIZE_IN_CENTS) >= THRESHOLD * (e_bid_p0 + TICK_SIZE_IN_CENTS):
                     # insert bid in etf, (if successful) hit bid in future 
                     self.bid_id = next(self.order_ids)
-                    bid_allowance = POSITION_LIMIT - self.position
+                    bid_allowance = min(POSITION_LIMIT - self.position, ACTIVE_VOLUME_LIMIT - self.active_volume)
                     volume = min(
                         self.top_ask_dic[instrument][0][1], bid_allowance)
                     self.send_insert_order(
                         self.bid_id, Side.BUY, (e_bid_p0 + TICK_SIZE_IN_CENTS), volume, Lifespan.G)
+                    self.active_order_dict[self.bid_id] = volume
                     self.bids.add(self.bid_id)
-                elif (e_ask_p0 - TICK_SIZE_IN_CENTS) - f_ask_p0 >= THRESHOLD * f_ask_p0:
+                if (e_ask_p0 - TICK_SIZE_IN_CENTS) - f_ask_p0 >= THRESHOLD * f_ask_p0:
                     # insert ask in etf, (if successful) take offer in future
                     self.ask_id = next(self.order_ids)
-                    ask_allowance = POSITION_LIMIT + self.position
+                    ask_allowance = min(POSITION_LIMIT + self.position, ACTIVE_VOLUME_LIMIT - self.active_volume)
                     volume = min(
                         self.top_bid_dic[instrument][0][1], ask_allowance)
                     self.send_insert_order(
                         self.ask_id, Side.SELL, (e_ask_p0 - TICK_SIZE_IN_CENTS), volume, Lifespan.G)
+                    self.active_order_dict[self.ask_id] = volume
                     self.asks.add(self.ask_id)
+
+            # cancel orders signal - when the spread is less than the THRESHOLD on either side
+            if f_bid_p0 - (e_bid_p0 + TICK_SIZE_IN_CENTS) < THRESHOLD * (e_bid_p0 + TICK_SIZE_IN_CENTS):
+                for bid in self.bids:
+                    self.send_cancel_order(bid)
+                # self.bids = set()
+            if (e_ask_p0 - TICK_SIZE_IN_CENTS) - f_ask_p0 < THRESHOLD * f_ask_p0:
+                for ask in self.asks:
+                    self.send_cancel_order(ask)
+                # self.asks = set()
 
             # exit signal
             volume = abs(self.position)
@@ -164,10 +181,12 @@ class AutoTrader(BaseAutoTrader):
                          price, volume)
         if client_order_id in self.bids:
             self.position += volume
+            self.active_volume -= volume
             self.send_hedge_order(next(self.order_ids),
                                   Side.ASK, MIN_BID_NEAREST_TICK, volume)
         elif client_order_id in self.asks:
             self.position -= volume
+            self.active_volume -= volume
             self.send_hedge_order(next(self.order_ids),
                                   Side.BID, MAX_ASK_NEAREST_TICK, volume)
 
@@ -185,14 +204,31 @@ class AutoTrader(BaseAutoTrader):
         self.logger.info("received order status for order %d with fill volume %d remaining %d and fees %d",
                          client_order_id, fill_volume, remaining_volume, fees)
         if remaining_volume == 0:
-            if client_order_id == self.bid_id:
-                self.bid_id = 0
-            elif client_order_id == self.ask_id:
-                self.ask_id = 0
+            # if client_order_id == self.bid_id:
+            #     self.bid_id = 0
+            # elif client_order_id == self.ask_id:
+            #     self.ask_id = 0
 
             # It could be either a bid or an ask
             self.bids.discard(client_order_id)
             self.asks.discard(client_order_id)
+            self.active_orders -= 1            
+            # if we canceled the order, we need to update the active volume
+            if client_order_id in self.active_order_dict and fees == 0:
+                self.active_volume -= self.active_order_dict[client_order_id]
+            if client_order_id in self.active_order_dict:
+                # it is possible that direct trade happens, so we need to check if the order is in the active_order_dict
+                self.active_order_dict.pop(client_order_id)
+        
+        # this means new order is inserted
+        elif remaining_volume > 0 and fill_volume == 0:
+            self.active_volume += remaining_volume
+            self.active_orders += 1
+        # this means the order is partially filled
+        elif remaining_volume > 0 and fill_volume > 0:
+            self.active_order_dict[client_order_id] = remaining_volume
+            pass # no need to update the self.active_volume, it is already updated in on_order_filled_message
+
 
     def on_trade_ticks_message(self, instrument: int, sequence_number: int, ask_prices: List[int],
                                ask_volumes: List[int], bid_prices: List[int], bid_volumes: List[int]) -> None:

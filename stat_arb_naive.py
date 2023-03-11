@@ -33,13 +33,9 @@ THRESHOLD = 2e-3
 
 
 class AutoTrader(BaseAutoTrader):
-    """Example Auto-trader.
+    """Statistical Arbitrage Naive Trading
 
-    When it starts this auto-trader places ten-lot bid and ask orders at the
-    current best-bid and best-ask prices respectively. Thereafter, if it has
-    a long position (it has bought more lots than it has sold) it reduces its
-    bid and ask prices. Conversely, if it has a short position (it has sold
-    more lots than it has bought) then it increases its bid and ask prices.
+    market_data_1: net_profit $5789.84
     """
 
     def __init__(self, loop: asyncio.AbstractEventLoop, team_name: str, secret: str):
@@ -97,40 +93,39 @@ class AutoTrader(BaseAutoTrader):
             e_bid_p0 = self.top_bid_dic[instrument][0][0]
 
             # entry signal
-            if abs(self.position) < POSITION_LIMIT and other in self.top_bid_dic.keys() and other in self.top_ask_dic.keys():
+            if self.position == 0 and other in self.top_bid_dic.keys() and other in self.top_ask_dic.keys():
                 if f_bid_p0 - e_ask_p0 >= THRESHOLD * e_ask_p0:
                     # hit bid in future, take offer in etf
                     self.bid_id = next(self.order_ids)
-                    bid_allowance = POSITION_LIMIT - self.position
                     volume = min(
-                        self.top_ask_dic[instrument][0][1], bid_allowance)
+                        self.top_ask_dic[instrument][0][1], POSITION_LIMIT)
                     self.send_insert_order(
                         self.bid_id, Side.BUY, e_ask_p0, volume, Lifespan.FILL_AND_KILL)
                     self.bids.add(self.bid_id)
                 elif e_bid_p0 - f_ask_p0 >= THRESHOLD * f_ask_p0:
                     # hit bid in etf, take offer in future
                     self.ask_id = next(self.order_ids)
-                    ask_allowance = POSITION_LIMIT + self.position
                     volume = min(
-                        self.top_bid_dic[instrument][0][1], ask_allowance)
+                        self.top_bid_dic[instrument][0][1], POSITION_LIMIT)
                     self.send_insert_order(
                         self.ask_id, Side.SELL, e_bid_p0, volume, Lifespan.FILL_AND_KILL)
                     self.asks.add(self.ask_id)
 
             # exit signal
-            volume = abs(self.position)
-            # when we have long etf and we need to sell it
-            if self.position > 0 and e_bid_p0 > f_ask_p0:
-                self.ask_id = next(self.order_ids)
-                self.send_insert_order(
-                    self.ask_id, Side.SELL, e_bid_p0, volume, Lifespan.F)
-                self.asks.add(self.ask_id)
-            # when we have short etf and we need to buy it
-            elif self.position < 0 and f_bid_p0 > e_ask_p0:
-                self.bid_id = next(self.order_ids)
-                self.send_insert_order(
-                    self.bid_id, Side.BUY, e_ask_p0, volume, Lifespan.F)
-                self.bids.add(self.bid_id)
+            elif self.position != 0:
+                volume = abs(self.position)
+                # when we have long etf and we need to sell it
+                if self.position > 0 and e_bid_p0 > f_ask_p0:
+                    self.ask_id = next(self.order_ids)
+                    self.send_insert_order(
+                        self.ask_id, Side.SELL, e_bid_p0, volume, Lifespan.F)
+                    self.asks.add(self.ask_id)
+                # when we have short etf and we need to buy it
+                elif self.position < 0 and f_bid_p0 > e_ask_p0:
+                    self.bid_id = next(self.order_ids)
+                    self.send_insert_order(
+                        self.bid_id, Side.BUY, e_ask_p0, volume, Lifespan.F)
+                    self.bids.add(self.bid_id)
 
         elif instrument == Instrument.FUTURE:
             self.top_bid_dic[instrument] = [

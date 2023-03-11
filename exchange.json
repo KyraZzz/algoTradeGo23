@@ -37,6 +37,6 @@
   },
   "Traders": {
     "TraderOne": "secret",
-    "TraderTwo": "secret"
+    "StatArbNaive": "secret"
   }
 }

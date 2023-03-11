@@ -78,6 +78,12 @@ class AutoTrader(BaseAutoTrader):
         prices are reported along with the volume available at each of those
         price levels.
         """
+        '''This is a naive statistical arbitrage strategy.
+        
+        '''
+
+
+
         self.logger.info("received order book for instrument %d with sequence number %d", instrument,
                          sequence_number)
         if instrument == Instrument.ETF:

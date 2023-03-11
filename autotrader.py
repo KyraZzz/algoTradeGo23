@@ -101,44 +101,32 @@ class AutoTrader(BaseAutoTrader):
                 if f_bid_p0 - e_ask_p0 >= THRESHOLD * e_ask_p0:
                     # hit bid in future, take offer in etf
                     self.bid_id = next(self.order_ids)
-                    self.ask_id = next(self.order_ids)
-                    volume = self.top_ask_dic[instrument][0][1]
-                    volume = min(volume, POSITION_LIMIT)
+                    volume = min(
+                        self.top_ask_dic[instrument][0][1], POSITION_LIMIT)
                     self.send_insert_order(
                         self.bid_id, Side.BUY, e_ask_p0, volume, Lifespan.FILL_AND_KILL)
                     self.bids.add(self.bid_id)
-                    # self.send_insert_order(
-                    #     self.ask_id, Side.SELL, f_bid_p0, volume, Lifespan.GOOD_FOR_DAY)
                 elif e_bid_p0 - f_ask_p0 >= THRESHOLD * f_ask_p0:
                     # hit bid in etf, take offer in future
                     self.ask_id = next(self.order_ids)
-                    self.bid_id = next(self.order_ids)
-                    volume = self.top_bid_dic[instrument][0][1]
-                    volume = min(volume, POSITION_LIMIT)
+                    volume = min(
+                        self.top_bid_dic[instrument][0][1], POSITION_LIMIT)
                     self.send_insert_order(
                         self.ask_id, Side.SELL, e_bid_p0, volume, Lifespan.FILL_AND_KILL)
                     self.asks.add(self.ask_id)
-                    # self.send_insert_order(
-                    #     self.bid_id, Side.BUY, f_ask_p0, volume, Lifespan.GOOD_FOR_DAY)
 
             # exit signal
             elif self.position != 0:
+                volume = abs(self.position)
                 # when we have long etf and we need to sell it
                 if self.position > 0 and e_bid_p0 > f_ask_p0:
-                    self.bid_id = next(self.order_ids)
                     self.ask_id = next(self.order_ids)
-
-                    volume = self.position
                     self.send_insert_order(
                         self.ask_id, Side.SELL, e_bid_p0, volume, Lifespan.F)
                     self.asks.add(self.ask_id)
-
                 # when we have short etf and we need to buy it
                 elif self.position < 0 and f_bid_p0 > e_ask_p0:
                     self.bid_id = next(self.order_ids)
-                    self.ask_id = next(self.order_ids)
-
-                    volume = - self.position
                     self.send_insert_order(
                         self.bid_id, Side.BUY, e_ask_p0, volume, Lifespan.F)
                     self.bids.add(self.bid_id)

@@ -82,6 +82,21 @@ class AutoTrader(BaseAutoTrader):
         prices are reported along with the volume available at each of those
         price levels.
         """
+        '''The order book message provides entry and end signal for the strategy.
+
+        The entry signal is triggered when the spread between the two instruments is larger than the TRESHOLD.
+        More specifically, two 'realistic spreads' are monitored, which are (the best bid in the future - the 
+        best ask in the etf) and (the best bid in the etf - the best ask in the future).
+        If either of the two spreads is larger than the TRESHOLD*the lower of the two prices, then a profitable
+        entry singal is triggered. We place two orders simultaneously to effectively short the spread.
+
+        The end signal is triggered when the spread becomes 0. We place two orders to unwind and materialise our
+        profits.
+
+        This strategy is an improved version of the naive stat arb because it trades on all entry signals whenever
+        our total position is within limit. And it closes our postisions whenever the end signal is presented.
+        '''
+
         self.logger.info("received order book for instrument %d with sequence number %d", instrument,
                          sequence_number)
         if instrument == Instrument.ETF:

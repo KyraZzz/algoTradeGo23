@@ -38,6 +38,8 @@
   "Traders": {
     "TraderOne": "secret",
     "StatArbNaive": "secret",
-    "StatArbFull" : "secret"
+    "StatArbFull" : "secret",
+    "Experiment":"secret",
+    "Experiment_2":"secret"
   }
 }

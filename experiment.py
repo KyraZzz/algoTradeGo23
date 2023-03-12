@@ -25,7 +25,9 @@ import numpy as np
 from typing import List
 
 from ready_trader_go import BaseAutoTrader, Instrument, Lifespan, MAXIMUM_ASK, MINIMUM_BID, Side
-
+# new
+# This is the dynamic optimised version of 'market-making strategy'. Although the MM strategy has many bugs.
+# end new
 
 MAX_LOT_SIZE = 20
 POSITION_LIMIT = 100
@@ -217,14 +219,14 @@ class AutoTrader(BaseAutoTrader):
 
             # new: threading the optimisation process
             time_elapsed = current_time - self.t_0
-            if time_elapsed % 60 == 0:
+            if time_elapsed % INTERVAL == 0:
                 print(self.Threshold)
-                spreadA = self.spreadA[-60:]
-                spreadB = self.spreadB[-60:]
+                spreadA = self.spreadA[-INTERVAL:]
+                spreadB = self.spreadB[-INTERVAL:]
                 x = threading.Thread(target=self.optimise,kwargs={'spreadA':spreadA,'spreadB':spreadB})
                 x.start()
 
-                if time_elapsed > 60:
+                if time_elapsed > INTERVAL:
                     self.Threshold = self.NewThreshold
                     print(self.Threshold)
 

@@ -26,6 +26,10 @@ from typing import List
 
 from ready_trader_go import BaseAutoTrader, Instrument, Lifespan, MAXIMUM_ASK, MINIMUM_BID, Side
 
+# new
+# This is the dynamic optimised version of 'stat_arb_full'. It can run for 15 mins without errors.
+# end new
+
 
 MAX_LOT_SIZE = 100
 POSITION_LIMIT = 100
@@ -36,7 +40,7 @@ MAX_ASK_NEAREST_TICK = MAXIMUM_ASK // TICK_SIZE_IN_CENTS * TICK_SIZE_IN_CENTS
 THRESHOLD = 2e-3
 
 # new
-INTERVAL = 60 # the optimisation interval in seconds, every second approx. 4 messages are received
+INTERVAL = 120 # the optimisation interval in messages, NOT seconds. Every second approx. 4 messages are received
 ZLB = 4e-4 # the zero lower bound for no profit
 # end new
 
@@ -64,7 +68,7 @@ class AutoTrader(BaseAutoTrader):
         self.spreadA = []
         self.spreadB = []
         self.t_0 = 0 # time in units of sequence number : int
-        self.NewThreshold = 2e-3
+        self.NewThreshold = THRESHOLD
         self.Threshold = THRESHOLD # I replaced all THRESHOLD 
         # end new
 
@@ -72,19 +76,32 @@ class AutoTrader(BaseAutoTrader):
     def optimise(self,spreadA,spreadB):
         spreadA = np.array(spreadA)
         spreadB = np.array(spreadB)
+        
+        signs = np.sign(spreadA)
+        changes = np.diff(signs)
+        positive_groups = np.count_nonzero(changes == 2)
+        negative_groups = np.count_nonzero(changes == -2)
+        crossover_sum = positive_groups + negative_groups
+
         spreadA = np.sort(spreadA[spreadA>ZLB])
         spreadB = np.sort(spreadB[spreadB>ZLB])
-        bound1 = bound2 = self.Threshold # previous threshold
 
         lenA = len(spreadA)
         lenB = len(spreadB)
 
-        top70A = int(lenA*0.3)
-        top70B = int(lenB*0.3)
-        if lenA > 5:
-            bound1 = spreadA[top70A]
-        if lenB > 5:
-            bound2 = spreadB[top70B]
+        print(crossover_sum)
+        if crossover_sum > 5:
+            topA = int(lenA*0.1)
+            topB = int(lenB*0.1)
+        elif crossover_sum < 3:
+            topA = int(lenA*0.9)
+            topB = int(lenB*0.9)
+        else:
+            topA = int(lenA*0.4)
+            topB = int(lenB*0.4)
+
+        bound1 = spreadA[topA] if len(spreadA) > 0 else self.Threshold
+        bound2 = spreadB[topB] if len(spreadB) > 0 else self.Threshold
 
         self.NewThreshold = np.mean([bound1,bound2])
 
@@ -165,6 +182,7 @@ class AutoTrader(BaseAutoTrader):
                     self.send_insert_order(
                         self.bid_id, Side.BUY, e_ask_p0, volume, Lifespan.FILL_AND_KILL)
                     self.bids.add(self.bid_id)
+                    return
                 elif e_bid_p0 - f_ask_p0 >= self.Threshold * f_ask_p0 and f_ask_p0 != 0:
                     # hit bid in etf, take offer in future
                     self.ask_id = next(self.order_ids)
@@ -174,6 +192,7 @@ class AutoTrader(BaseAutoTrader):
                     self.send_insert_order(
                         self.ask_id, Side.SELL, e_bid_p0, volume, Lifespan.FILL_AND_KILL)
                     self.asks.add(self.ask_id)
+                    return
 
             # exit signal
             volume = abs(self.position)
@@ -183,34 +202,35 @@ class AutoTrader(BaseAutoTrader):
                 self.send_insert_order(
                     self.ask_id, Side.SELL, e_bid_p0, volume, Lifespan.F)
                 self.asks.add(self.ask_id)
+
             # when we have short etf and we need to buy it
             elif self.position < 0 and f_bid_p0 > e_ask_p0:
                 self.bid_id = next(self.order_ids)
                 self.send_insert_order(
                     self.bid_id, Side.BUY, e_ask_p0, volume, Lifespan.F)
                 self.bids.add(self.bid_id)
-            
+
             # new: record two spreads in percentage
-            spreadA = f_bid_p0 - (e_bid_p0 + TICK_SIZE_IN_CENTS)
-            spreadA = spreadA / (e_bid_p0 + TICK_SIZE_IN_CENTS)
-            spreadB = (e_ask_p0 - TICK_SIZE_IN_CENTS) - f_ask_p0
-            spreadB = spreadB / (e_ask_p0 - TICK_SIZE_IN_CENTS)
+            spreadA = f_bid_p0 - e_ask_p0
+            spreadA = spreadA / e_ask_p0 if e_ask_p0 != 0 else 0
+            spreadB = e_bid_p0 - f_ask_p0
+            spreadB = spreadB / e_bid_p0 if e_bid_p0 != 0 else 0
             self.spreadA.append(spreadA)
             self.spreadB.append(spreadB)
             # end new
             
             # new: threading the optimisation process
             time_elapsed = current_time - self.t_0
-            if time_elapsed % 60 == 0:
-                print(self.Threshold)
-                spreadA = self.spreadA[-60:]
-                spreadB = self.spreadB[-60:]
+            if time_elapsed % INTERVAL == 0:
+                # print(self.Threshold)
+                spreadA = self.spreadA[-INTERVAL:]
+                spreadB = self.spreadB[-INTERVAL:]
                 x = threading.Thread(target=self.optimise,kwargs={'spreadA':spreadA,'spreadB':spreadB})
                 x.start()
 
-                if time_elapsed > 60:
-                    self.Threshold = self.NewThreshold
-                    print(self.Threshold)
+            if (time_elapsed - 5) % INTERVAL == 0:
+                self.Threshold = self.NewThreshold
+                print(self.Threshold)
 
             # end new
 

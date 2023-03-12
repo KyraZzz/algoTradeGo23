@@ -154,15 +154,6 @@ class AutoTrader(BaseAutoTrader):
             e_ask_p0 = self.top_ask_dic[instrument][0][0]
             e_bid_p0 = self.top_bid_dic[instrument][0][0]
 
-            # new: record two spreads in percentage
-            spreadA = f_bid_p0 - (e_bid_p0 + TICK_SIZE_IN_CENTS)
-            spreadA = spreadA / (e_bid_p0 + TICK_SIZE_IN_CENTS)
-            spreadB = (e_ask_p0 - TICK_SIZE_IN_CENTS) - f_ask_p0
-            spreadB = spreadB / (e_ask_p0 - TICK_SIZE_IN_CENTS)
-            self.spreadA.append(spreadA)
-            self.spreadB.append(spreadB)
-            # end new
-
             # entry signal
             if abs(self.position) < POSITION_LIMIT and other in self.top_bid_dic.keys() and other in self.top_ask_dic.keys():
                 if f_bid_p0 - e_ask_p0 >= self.Threshold * e_ask_p0 and e_ask_p0 != 0:
@@ -198,6 +189,15 @@ class AutoTrader(BaseAutoTrader):
                 self.send_insert_order(
                     self.bid_id, Side.BUY, e_ask_p0, volume, Lifespan.F)
                 self.bids.add(self.bid_id)
+            
+            # new: record two spreads in percentage
+            spreadA = f_bid_p0 - (e_bid_p0 + TICK_SIZE_IN_CENTS)
+            spreadA = spreadA / (e_bid_p0 + TICK_SIZE_IN_CENTS)
+            spreadB = (e_ask_p0 - TICK_SIZE_IN_CENTS) - f_ask_p0
+            spreadB = spreadB / (e_ask_p0 - TICK_SIZE_IN_CENTS)
+            self.spreadA.append(spreadA)
+            self.spreadB.append(spreadB)
+            # end new
             
             # new: threading the optimisation process
             time_elapsed = current_time - self.t_0

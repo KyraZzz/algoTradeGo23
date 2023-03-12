@@ -111,7 +111,7 @@ class AutoTrader(BaseAutoTrader):
             e_ask_p0 = self.top_ask_dic[instrument][0][0]
             e_bid_p0 = self.top_bid_dic[instrument][0][0]
 
-            # entry signal
+            # entry signal KEY: AT any data point, either enter or exit, but not both
             if abs(self.position) < POSITION_LIMIT and other in self.top_bid_dic.keys() and other in self.top_ask_dic.keys():
                 if f_bid_p0 - e_ask_p0 >= THRESHOLD * e_ask_p0 and e_ask_p0 != 0:
                     # hit bid in future, take offer in etf
@@ -122,6 +122,7 @@ class AutoTrader(BaseAutoTrader):
                     self.send_insert_order(
                         self.bid_id, Side.BUY, e_ask_p0, volume, Lifespan.FILL_AND_KILL)
                     self.bids.add(self.bid_id)
+                    return
                 elif e_bid_p0 - f_ask_p0 >= THRESHOLD * f_ask_p0 and f_ask_p0 != 0:
                     # hit bid in etf, take offer in future
                     self.ask_id = next(self.order_ids)
@@ -131,6 +132,7 @@ class AutoTrader(BaseAutoTrader):
                     self.send_insert_order(
                         self.ask_id, Side.SELL, e_bid_p0, volume, Lifespan.FILL_AND_KILL)
                     self.asks.add(self.ask_id)
+                    return
 
             # exit signal
             volume = abs(self.position)
@@ -142,7 +144,7 @@ class AutoTrader(BaseAutoTrader):
                 self.asks.add(self.ask_id)
             # when we have short etf and we need to buy it
             elif self.position < 0 and f_bid_p0 > e_ask_p0:
-                self.bid_id = next(self.order_ids)
+                self.bid_id = next(self.order_ids) 
                 self.send_insert_order(
                     self.bid_id, Side.BUY, e_ask_p0, volume, Lifespan.F)
                 self.bids.add(self.bid_id)

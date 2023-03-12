@@ -183,6 +183,7 @@ class AutoTrader(BaseAutoTrader):
             self.active_volume -= volume
             self.send_hedge_order(next(self.order_ids),
                                   Side.ASK, MIN_BID_NEAREST_TICK, volume)
+
         elif client_order_id in self.asks:
             self.position -= volume
             self.active_volume -= volume

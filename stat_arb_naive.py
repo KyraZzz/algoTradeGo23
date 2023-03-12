@@ -109,7 +109,7 @@ class AutoTrader(BaseAutoTrader):
 
             # entry signal
             if self.position == 0 and other in self.top_bid_dic.keys() and other in self.top_ask_dic.keys():
-                if f_bid_p0 - e_ask_p0 >= THRESHOLD * e_ask_p0:
+                if f_bid_p0 - e_ask_p0 >= THRESHOLD * e_ask_p0 and e_ask_p0 != 0:
                     # hit bid in future, take offer in etf
                     self.bid_id = next(self.order_ids)
                     volume = min(
@@ -117,7 +117,7 @@ class AutoTrader(BaseAutoTrader):
                     self.send_insert_order(
                         self.bid_id, Side.BUY, e_ask_p0, volume, Lifespan.FILL_AND_KILL)
                     self.bids.add(self.bid_id)
-                elif e_bid_p0 - f_ask_p0 >= THRESHOLD * f_ask_p0:
+                elif e_bid_p0 - f_ask_p0 >= THRESHOLD * f_ask_p0 and f_ask_p0 != 0:
                     # hit bid in etf, take offer in future
                     self.ask_id = next(self.order_ids)
                     volume = min(

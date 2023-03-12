@@ -17,6 +17,7 @@
 #     <https://www.gnu.org/licenses/>.
 import asyncio
 import itertools
+import numpy as np
 
 from typing import List
 
@@ -160,12 +161,12 @@ class AutoTrader(BaseAutoTrader):
                     if volume > 0:
                         self.bid_id = next(self.order_ids)
                         price = e_bid_p0 + TICK_SIZE_IN_CENTS
-                        self.send_insert_order(
-                            self.bid_id, Side.BUY, price, volume, Lifespan.G)
                         self.bids.add(self.bid_id)
                         new_order = BidOrder(self.bid_id, price, volume)
                         self.order_map[self.bid_id] = new_order
                         heapq.heappush(self.bid_pq, new_order)
+                        self.send_insert_order(
+                            self.bid_id, Side.BUY, price, volume, Lifespan.G)
                 if (e_ask_p0 - TICK_SIZE_IN_CENTS) - f_ask_p0 >= THRESHOLD * f_ask_p0:
                     # insert ask in etf, (if successful) take offer in future
                     volume = min(MAX_LOT_SIZE, POSITION_LIMIT + self.position,
@@ -173,12 +174,12 @@ class AutoTrader(BaseAutoTrader):
                     if volume > 0:
                         self.ask_id = next(self.order_ids)
                         price = e_ask_p0 - TICK_SIZE_IN_CENTS
-                        self.send_insert_order(
-                            self.ask_id, Side.SELL, price, volume, Lifespan.G)
                         self.asks.add(self.ask_id)
                         new_order = AskOrder(self.ask_id, price, volume)
                         self.order_map[self.ask_id] = new_order
                         heapq.heappush(self.ask_pq, new_order)
+                        self.send_insert_order(
+                            self.ask_id, Side.SELL, price, volume, Lifespan.G)
 
             # cancel orders signal - when the spread is less than the THRESHOLD on either side
             if f_bid_p0 - (e_bid_p0 + TICK_SIZE_IN_CENTS) < THRESHOLD * (e_bid_p0 + TICK_SIZE_IN_CENTS):
@@ -197,21 +198,21 @@ class AutoTrader(BaseAutoTrader):
             # when we have long etf and we need to sell it
             if self.position > 0 and e_bid_p0 > f_ask_p0:
                 self.ask_id = next(self.order_ids)
-                self.send_insert_order(
-                    self.ask_id, Side.SELL, e_bid_p0, volume, Lifespan.F)
                 self.asks.add(self.ask_id)
                 new_order = AskOrder(self.ask_id, e_bid_p0, volume)
                 self.order_map[self.ask_id] = new_order
                 heapq.heappush(self.ask_pq, new_order)
+                self.send_insert_order(
+                    self.ask_id, Side.SELL, e_bid_p0, volume, Lifespan.F)
             # when we have short etf and we need to buy it
             elif self.position < 0 and f_bid_p0 > e_ask_p0:
                 self.bid_id = next(self.order_ids)
-                self.send_insert_order(
-                    self.bid_id, Side.BUY, e_ask_p0, volume, Lifespan.F)
                 self.bids.add(self.bid_id)
                 new_order = BidOrder(self.bid_id, e_ask_p0, volume)
                 self.order_map[self.bid_id] = new_order
                 heapq.heappush(self.bid_pq, new_order)
+                self.send_insert_order(
+                    self.bid_id, Side.BUY, e_ask_p0, volume, Lifespan.F)
 
         elif instrument == Instrument.FUTURE:
             self.top_bid_dic[instrument] = [
@@ -230,23 +231,34 @@ class AutoTrader(BaseAutoTrader):
                          price, volume)
         
         order = self.order_map[client_order_id]
+
+        # bid_vol_cum = np.cumsum([order.volume for order in self.bid_pq])
+        # ask_vol_cum = np.cumsum([order.volume for order in self.ask_pq])
+
+        # ex_bids = np.where(bid_vol_cum > )
+        # ex_asks = np.where(ask_vol_cum > )
+
         # case 2: fully filled or self trade
         if order.volume == volume:
             if isinstance(order, BidOrder):
+                print(f"bid_pq: {[order.order_id for order in self.bid_pq]}")
                 self.bid_pq.remove(order)
-            else:
+            elif isinstance(order, AskOrder):
+                print(f"ask_pq: {[order.order_id for order in self.ask_pq]}")
                 self.ask_pq.remove(order)
             self.order_map.pop(client_order_id, None)
             self.active_orders -= 1
         # case 4: partially filled
         elif order.volume > volume:
-            order.amend_volume(order.volume - volume)
+            update_volume = order.volume - volume
+            order.amend_volume(update_volume)
 
         if client_order_id in self.bids:
             self.position += volume
             self.active_volume -= volume
             self.send_hedge_order(next(self.order_ids),
                                   Side.ASK, MIN_BID_NEAREST_TICK, volume)
+            
             if self.position == POSITION_LIMIT:
                 for bid in self.bids:
                     self.send_cancel_order(bid)
@@ -307,8 +319,6 @@ class AutoTrader(BaseAutoTrader):
         elif remaining_volume > 0 and fill_volume == 0:
             self.active_volume += remaining_volume
             self.active_orders += 1
-            order = self.order_map[client_order_id]
-            order.amend_volume(remaining_volume)
 
     def on_trade_ticks_message(self, instrument: int, sequence_number: int, ask_prices: List[int],
                                ask_volumes: List[int], bid_prices: List[int], bid_volumes: List[int]) -> None:

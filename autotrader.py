@@ -252,9 +252,9 @@ class AutoTrader(BaseAutoTrader):
                 self.bids = set()
                 self.bid_pq = []
             elif self.position < POSITION_LIMIT:
-                top_order = self.bid_pq[0]
+                top_order = self.bid_pq[0] if len(self.bid_pq) > 0 else None
                 allowance = POSITION_LIMIT - self.position
-                if top_order.volume > allowance:
+                if top_order is not None and top_order.volume > allowance:
                     update_volume = min(allowance, top_order.volume)
                     top_order.amend_volume(update_volume)
                     self.send_amend_order(top_order.order_id, update_volume)
@@ -270,9 +270,9 @@ class AutoTrader(BaseAutoTrader):
                 self.asks = set()
                 self.ask_pq = []
             elif self.position > -POSITION_LIMIT:
-                top_order = self.ask_pq[0]
+                top_order = self.ask_pq[0] if len(self.ask_pq) > 0 else None
                 allowance = self.position + POSITION_LIMIT 
-                if top_order.volume > allowance:
+                if top_order is not None and top_order.volume > allowance:
                     update_volume = min(allowance, top_order.volume)
                     top_order.amend_volume(update_volume)
                     self.send_amend_order(top_order.order_id, update_volume)
@@ -306,7 +306,7 @@ class AutoTrader(BaseAutoTrader):
         elif remaining_volume > 0 and fill_volume == 0:
             self.active_volume += remaining_volume
             self.active_orders += 1
-            order = self.order_map.pop(client_order_id, None)
+            order = self.order_map[client_order_id]
             order.amend_volume(remaining_volume)
 
     def on_trade_ticks_message(self, instrument: int, sequence_number: int, ask_prices: List[int],

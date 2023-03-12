@@ -237,6 +237,7 @@ class AutoTrader(BaseAutoTrader):
             else:
                 self.ask_pq.remove(order)
             self.order_map.pop(client_order_id, None)
+            self.active_orders -= 1
         # case 4: partially filled
         elif order.volume > volume:
             order.amend_volume(order.volume - volume)
